@@ -4,7 +4,6 @@
 node_modules/
 .pnp
 .pnp.js
-.yarn/install-state.gz
 
 # ========================
 # Environment & Secrets
@@ -17,13 +16,14 @@ node_modules/
 !.env.example
 
 # ========================
-# Database Files
+# Database Files (local SQLite dev DB)
 # ========================
 *.db
 *.sqlite
 *.sqlite3
 *.db-shm
 *.db-wal
+lifesync.db
 
 # ========================
 # Logs
@@ -33,17 +33,6 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
-
-# ========================
-# Build Outputs
-# ========================
-dist/
-build/
-out/
-.next/
-.nuxt/
-.cache/
 
 # ========================
 # Test & Coverage
@@ -52,14 +41,15 @@ coverage/
 .nyc_output/
 
 # ========================
+# Build / Compile Outputs
+# ========================
+dist/
+build/
+
+# ========================
 # OS Files
 # ========================
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 Desktop.ini
 
@@ -69,21 +59,16 @@ Desktop.ini
 .vscode/
 .idea/
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
 *.swp
 *.swo
 
 # ========================
-# Vercel
+# Railway / Deployment
 # ========================
-.vercel
+.railway/
 
 # ========================
 # Misc
 # ========================
 *.tgz
 *.tar.gz
-.npmrc
