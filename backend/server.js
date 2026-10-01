@@ -63,8 +63,8 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve frontend static files from repository root
-const frontendPath = path.join(__dirname, '..');
+// Serve frontend static files from frontend/ folder
+const frontendPath = path.join(__dirname, '..', 'frontend');
 app.use(express.static(frontendPath));
 
 // API Routes
