@@ -94,6 +94,7 @@ async function getDashboardSummary(req, res, next) {
                 income: Math.round(totalIncome * 100) / 100,
                 expenses: Math.round(totalExpenses * 100) / 100,
                 remaining: Math.round((totalIncome - totalExpenses) * 100) / 100,
+                netBalance: Math.round(((totalIncome + monthlyBudget) - totalExpenses) * 100) / 100,
                 monthlyBudget,
                 spentThisMonth: Math.round(spentThisMonth * 100) / 100,
                 budgetRemaining: Math.max(0, monthlyBudget - spentThisMonth)

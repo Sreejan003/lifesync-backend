@@ -235,6 +235,7 @@ async function getBudgetSummary(req, res, next) {
         });
 
         const remainingBalance = totalIncome - totalExpenses;
+        const netBalance = (totalIncome + monthlyBudget) - totalExpenses;
         const remainingMonthlyBudget = Math.max(0, monthlyBudget - spentThisMonth);
 
         // Runway calculation
@@ -248,6 +249,7 @@ async function getBudgetSummary(req, res, next) {
             income: Math.round(totalIncome * 100) / 100,
             expenses: Math.round(totalExpenses * 100) / 100,
             remaining: Math.round(remainingBalance * 100) / 100,
+            netBalance: Math.round(netBalance * 100) / 100,
             monthlyBudget,
             spentThisMonth: Math.round(spentThisMonth * 100) / 100,
             remainingMonthlyBudget: Math.round(remainingMonthlyBudget * 100) / 100,
