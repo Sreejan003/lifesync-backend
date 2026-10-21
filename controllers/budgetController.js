@@ -4,7 +4,6 @@
  * Complete CRUD for financial transactions and server-side summary calculations.
  * Enforces strict user tenant isolation by req.user.id.
  */
-
 const db = require('../config/db');
 
 /**
@@ -195,12 +194,16 @@ async function getBudgetSummary(req, res, next) {
         let settingsRes = await db.query('SELECT * FROM budget_settings WHERE user_id = $1', [userId]);
         let settings = settingsRes.rows[0];
         if (!settings) {
-            await db.query('INSERT INTO budget_settings (user_id) VALUES ($1)', [userId]);
+            await db.query(
+                `INSERT INTO budget_settings (user_id, monthly_budget, runway_sum, runway_buffer_pct, night_safe_limit, night_safe_spent, night_safe_locked)
+                 VALUES ($1, 0, 0, 15, 0, 0, 0)`,
+                [userId]
+            );
             settingsRes = await db.query('SELECT * FROM budget_settings WHERE user_id = $1', [userId]);
             settings = settingsRes.rows[0];
         }
 
-        const monthlyBudget = parseFloat(settings.monthly_budget) || 15000;
+        const monthlyBudget = (settings.monthly_budget !== undefined && settings.monthly_budget !== null) ? parseFloat(settings.monthly_budget) : 0;
 
         // 2. Fetch all transactions
         const txRes = await db.query('SELECT * FROM transactions WHERE user_id = $1', [userId]);
@@ -224,7 +227,8 @@ async function getBudgetSummary(req, res, next) {
                 totalExpenses += amt;
                 categoryExpenses[cat] = (categoryExpenses[cat] || 0) + amt;
 
-                if (t.date && t.date.startsWith(currentMonth)) {
+                const dateStr = t.date instanceof Date ? t.date.toISOString().slice(0, 10) : String(t.date || '');
+                if (dateStr.startsWith(currentMonth)) {
                     spentThisMonth += amt;
                 }
             }
@@ -234,11 +238,11 @@ async function getBudgetSummary(req, res, next) {
         const remainingMonthlyBudget = Math.max(0, monthlyBudget - spentThisMonth);
 
         // Runway calculation
-        const runwaySum = parseFloat(settings.runway_sum) || 20000;
-        const bufferPct = parseInt(settings.runway_buffer_pct, 10) || 15;
+        const runwaySum = (settings.runway_sum !== undefined && settings.runway_sum !== null) ? parseFloat(settings.runway_sum) : 0;
+        const bufferPct = (settings.runway_buffer_pct !== undefined && settings.runway_buffer_pct !== null) ? parseInt(settings.runway_buffer_pct, 10) : 15;
         const bufferAmount = (runwaySum * bufferPct) / 100;
         const usableLivingFunds = Math.max(0, runwaySum - bufferAmount);
-        const monthlyLivingAllowance = usableLivingFunds / 4; // 4 semester months
+        const monthlyLivingAllowance = runwaySum > 0 ? (usableLivingFunds / 4) : 0;
 
         return res.status(200).json({
             income: Math.round(totalIncome * 100) / 100,
@@ -257,8 +261,8 @@ async function getBudgetSummary(req, res, next) {
                     monthlyAllowance: Math.round(monthlyLivingAllowance)
                 },
                 nightSafe: {
-                    limit: parseFloat(settings.night_safe_limit) || 500,
-                    spent: parseFloat(settings.night_safe_spent) || 0,
+                    limit: (settings.night_safe_limit !== undefined && settings.night_safe_limit !== null) ? parseFloat(settings.night_safe_limit) : 0,
+                    spent: (settings.night_safe_spent !== undefined && settings.night_safe_spent !== null) ? parseFloat(settings.night_safe_spent) : 0,
                     locked: Boolean(settings.night_safe_locked)
                 }
             }
@@ -276,7 +280,11 @@ async function getBudgetSettings(req, res, next) {
         const userId = req.user.id;
         let resData = await db.query('SELECT * FROM budget_settings WHERE user_id = $1', [userId]);
         if (resData.rows.length === 0) {
-            await db.query('INSERT INTO budget_settings (user_id) VALUES ($1)', [userId]);
+            await db.query(
+                `INSERT INTO budget_settings (user_id, monthly_budget, runway_sum, runway_buffer_pct, night_safe_limit, night_safe_spent, night_safe_locked)
+                 VALUES ($1, 0, 0, 15, 0, 0, 0)`,
+                [userId]
+            );
             resData = await db.query('SELECT * FROM budget_settings WHERE user_id = $1', [userId]);
         }
         return res.status(200).json(resData.rows[0]);
@@ -296,12 +304,12 @@ async function updateBudgetSettings(req, res, next) {
         const currentRes = await db.query('SELECT * FROM budget_settings WHERE user_id = $1', [userId]);
         const current = currentRes.rows[0] || {};
 
-        const mBudget = monthlyBudget !== undefined ? parseFloat(monthlyBudget) : (current.monthly_budget || 15000);
-        const rSum = runwaySum !== undefined ? parseFloat(runwaySum) : (current.runway_sum || 20000);
-        const rBuf = runwayBufferPct !== undefined ? parseInt(runwayBufferPct, 10) : (current.runway_buffer_pct || 15);
-        const nLimit = nightSafeLimit !== undefined ? parseFloat(nightSafeLimit) : (current.night_safe_limit || 500);
-        const nSpent = nightSafeSpent !== undefined ? parseFloat(nightSafeSpent) : (current.night_safe_spent || 0);
-        const nLocked = nightSafeLocked !== undefined ? (nightSafeLocked ? 1 : 0) : (current.night_safe_locked || 0);
+        const mBudget = monthlyBudget !== undefined ? parseFloat(monthlyBudget) : ((current.monthly_budget !== undefined && current.monthly_budget !== null) ? parseFloat(current.monthly_budget) : 0);
+        const rSum = runwaySum !== undefined ? parseFloat(runwaySum) : ((current.runway_sum !== undefined && current.runway_sum !== null) ? parseFloat(current.runway_sum) : 0);
+        const rBuf = runwayBufferPct !== undefined ? parseInt(runwayBufferPct, 10) : ((current.runway_buffer_pct !== undefined && current.runway_buffer_pct !== null) ? parseInt(current.runway_buffer_pct, 10) : 15);
+        const nLimit = nightSafeLimit !== undefined ? parseFloat(nightSafeLimit) : ((current.night_safe_limit !== undefined && current.night_safe_limit !== null) ? parseFloat(current.night_safe_limit) : 0);
+        const nSpent = nightSafeSpent !== undefined ? parseFloat(nightSafeSpent) : ((current.night_safe_spent !== undefined && current.night_safe_spent !== null) ? parseFloat(current.night_safe_spent) : 0);
+        const nLocked = nightSafeLocked !== undefined ? Boolean(nightSafeLocked) : Boolean(current.night_safe_locked);
 
         await db.query(
             `INSERT INTO budget_settings (user_id, monthly_budget, runway_sum, runway_buffer_pct, night_safe_limit, night_safe_spent, night_safe_locked)

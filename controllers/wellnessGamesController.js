@@ -58,7 +58,7 @@ async function getSudokuProgress(req, res, next) {
         );
 
         const countRes = await db.query(
-            'SELECT COUNT(*) as count FROM wellness_sudoku_games WHERE user_id = $1 AND is_completed = 1',
+            'SELECT COUNT(*) as count FROM wellness_sudoku_games WHERE user_id = $1 AND is_completed = true',
             [userId]
         );
 
@@ -110,7 +110,7 @@ async function saveSudokuProgress(req, res, next) {
         } else {
             result = await db.query(
                 `INSERT INTO wellness_sudoku_games (user_id, puzzle_id, difficulty, is_completed, time_seconds, mistakes_count, hints_used, checks_count)
-                 VALUES ($1, $2, $3, 0, $4, $5, $6, $7)
+                 VALUES ($1, $2, $3, false, $4, $5, $6, $7)
                  RETURNING *`,
                 [userId, pid, diff, timeSec, mistakes, hints, checks]
             );
@@ -152,7 +152,7 @@ async function completeSudoku(req, res, next) {
         if (existing.rows.length > 0) {
             result = await db.query(
                 `UPDATE wellness_sudoku_games
-                 SET is_completed = 1, difficulty = $1, time_seconds = $2, mistakes_count = $3, hints_used = $4, checks_count = $5, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                 SET is_completed = true, difficulty = $1, time_seconds = $2, mistakes_count = $3, hints_used = $4, checks_count = $5, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                  WHERE id = $6 AND user_id = $7
                  RETURNING *`,
                 [diff, timeSec, mistakes, hints, checks, existing.rows[0].id, userId]
@@ -160,7 +160,7 @@ async function completeSudoku(req, res, next) {
         } else {
             result = await db.query(
                 `INSERT INTO wellness_sudoku_games (user_id, puzzle_id, difficulty, is_completed, time_seconds, mistakes_count, hints_used, checks_count, completed_at)
-                 VALUES ($1, $2, $3, 1, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+                 VALUES ($1, $2, $3, true, $4, $5, $6, $7, CURRENT_TIMESTAMP)
                  RETURNING *`,
                 [userId, pid, diff, timeSec, mistakes, hints, checks]
             );
@@ -406,7 +406,7 @@ async function getWellnessGamesSummary(req, res, next) {
 
         // Sudoku stats
         const sudokuRes = await db.query(
-            'SELECT COUNT(*) as count FROM wellness_sudoku_games WHERE user_id = $1 AND is_completed = 1',
+            'SELECT COUNT(*) as count FROM wellness_sudoku_games WHERE user_id = $1 AND is_completed = true',
             [userId]
         );
         const sudokuCompleted = parseInt((sudokuRes.rows[0] && sudokuRes.rows[0].count) || 0, 10);

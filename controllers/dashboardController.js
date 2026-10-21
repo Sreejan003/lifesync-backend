@@ -60,7 +60,8 @@ async function getDashboardSummary(req, res, next) {
                 totalIncome += amt;
             } else {
                 totalExpenses += amt;
-                if (t.date && String(t.date).startsWith(currentMonth)) {
+                const dateStr = t.date instanceof Date ? t.date.toISOString().slice(0, 10) : String(t.date || '');
+                if (dateStr.startsWith(currentMonth)) {
                     spentThisMonth += amt;
                 }
             }

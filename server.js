@@ -2,7 +2,7 @@
  * LifeSync REST API Server (backend/server.js)
  * -------------------------------------------------------------
  * Main entrypoint for LifeSync backend application.
- * Serves REST endpoints under /api/* and hosts frontend static assets.
+ * Serves REST endpoints under /api/*
  */
 
 require('dotenv').config();
@@ -22,6 +22,9 @@ const budgetRoutes = require('./routes/budgetRoutes');
 const wellnessRoutes = require('./routes/wellnessRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const pomodoroRoutes = require('./routes/pomodoroRoutes');
+const scheduler = require('./services/scheduler');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -63,10 +66,6 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve frontend static files from repository root
-const frontendPath = path.join(__dirname, '..');
-app.use(express.static(frontendPath));
-
 // API Routes
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
@@ -76,46 +75,76 @@ app.use('/api/budget', budgetRoutes);
 app.use('/api/wellness', wellnessRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/pomodoro', pomodoroRoutes);
 
-// Fallback middleware to serve index.html for frontend client routes
-app.use((req, res, next) => {
-    if (req.method === 'GET' && !req.path.startsWith('/api/')) {
-        return res.sendFile(path.join(frontendPath, 'index.html'));
-    }
+// 404 handler for undefined routes
+app.use((req, res) => {
     if (req.path.startsWith('/api/')) {
         return res.status(404).json({ error: `API route ${req.method} ${req.path} not found.` });
     }
-    next();
+    res.status(404).json({ error: 'Not found' });
 });
 
 // Global Error Handler
 app.use(errorHandler);
 
 // Initialize Database and Start Server
+let runningServer = null;
+
 async function startServer(portToUse) {
     try {
         await db.initDatabase();
 
         const activePort = portToUse !== undefined ? portToUse : (process.env.PORT || 5000);
-        const server = app.listen(activePort, () => {
-            console.log(`=================================================`);
-            console.log(`🚀 LifeSync Backend Server Running on Port ${activePort}`);
-            console.log(`🌐 Local URL:   http://localhost:${activePort}`);
-            console.log(`🩺 Healthcheck: http://localhost:${activePort}/api/health`);
-            console.log(`📦 Database:    ${db.getDriver().toUpperCase()}`);
-            console.log(`=================================================`);
-        });
+        return new Promise((resolve, reject) => {
+            const server = app.listen(activePort, () => {
+                const assignedPort = server.address() ? server.address().port : activePort;
+                console.log(`=================================================`);
+                console.log(`🚀 LifeSync Backend Server Running on Port ${assignedPort}`);
+                console.log(`🌐 Local URL:   http://localhost:${assignedPort}`);
+                console.log(`🩺 Healthcheck: http://localhost:${assignedPort}/api/health`);
+                console.log(`📦 Database:    ${db.getDriver().toUpperCase()}`);
+                console.log(`=================================================`);
 
-        return server;
+                runningServer = server;
+
+                // Start background smart notification scheduler
+                scheduler.startScheduler();
+
+                resolve(server);
+            });
+            server.on('error', reject);
+        });
     } catch (err) {
         console.error('❌ Failed to start server:', err);
         return null;
     }
 }
 
+// Graceful Shutdown Handler
+function gracefulShutdown(signal) {
+    console.log(`\n🛑 Received ${signal}. Gracefully shutting down LifeSync server...`);
+    scheduler.stopScheduler();
+
+    if (runningServer) {
+        runningServer.close(async () => {
+            console.log('🚪 HTTP server closed.');
+            await db.closeDatabase();
+            console.log('👋 LifeSync process exited cleanly.');
+            process.exit(0);
+        });
+    } else {
+        process.exit(0);
+    }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 // If invoked directly, start server
 if (require.main === module) {
     startServer();
 }
 
-module.exports = { app, startServer };
+module.exports = { app, startServer, gracefulShutdown };

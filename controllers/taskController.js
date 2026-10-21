@@ -34,6 +34,44 @@ function getDaysDiff(dateStr) {
     return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
 
+// Helper: Check if date and optional time is in the past
+function isScheduleInPast(dateStr, timeStr) {
+    if (!dateStr) return false;
+    const cleanDate = String(dateStr).split('T')[0].trim();
+    if (!cleanDate) return false;
+
+    // Use current local date components
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${m}-${d}`;
+
+    if (cleanDate < todayStr) {
+        return true;
+    }
+
+    if (cleanDate === todayStr) {
+        // Extract time if provided
+        let cleanTime = timeStr ? String(timeStr).trim() : '';
+        if (!cleanTime && String(dateStr).includes('T')) {
+            const timePart = String(dateStr).split('T')[1];
+            if (timePart) cleanTime = timePart.substring(0, 5);
+        }
+
+        if (cleanTime) {
+            const currentHours = String(now.getHours()).padStart(2, '0');
+            const currentMins = String(now.getMinutes()).padStart(2, '0');
+            const currentTimeStr = `${currentHours}:${currentMins}`;
+            if (cleanTime < currentTimeStr) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 /**
  * GET /api/tasks
  * Retrieve tasks belonging to logged-in user
@@ -104,10 +142,21 @@ async function getTaskById(req, res, next) {
 async function createTask(req, res, next) {
     try {
         const userId = req.user.id;
-        const { title, category, deadline, dueDate, priority, status, description } = req.body;
+        const { title, category, deadline, dueDate, dueTime, priority, status, description, allowPast } = req.body;
 
         if (!title || !title.trim()) {
             return res.status(400).json({ error: 'Task title is required.' });
+        }
+
+        const taskDeadline = deadline || dueDate || null;
+
+        // Reject scheduling in the past
+        if (taskDeadline && !allowPast) {
+            if (isScheduleInPast(taskDeadline, dueTime)) {
+                return res.status(400).json({
+                    error: 'You cannot schedule a task in the past. Please select a future date and time.'
+                });
+            }
         }
 
         const allowedPriorities = ['Low', 'Medium', 'High', 'Urgent'];
@@ -131,7 +180,6 @@ async function createTask(req, res, next) {
             taskStatus = formatted;
         }
 
-        const taskDeadline = deadline || dueDate || null;
         const completedAt = taskStatus === 'Completed' ? new Date().toISOString() : null;
 
         const result = await db.query(
@@ -172,13 +220,25 @@ async function updateTask(req, res, next) {
         }
 
         const current = existing.rows[0];
-        const { title, category, deadline, dueDate, priority, status, description } = req.body;
+        const { title, category, deadline, dueDate, dueTime, priority, status, description, allowPast } = req.body;
 
         const updatedTitle = title !== undefined ? title.trim() : current.title;
         const updatedCategory = category !== undefined ? category : current.category;
         const updatedDeadline = (deadline !== undefined || dueDate !== undefined)
             ? (deadline || dueDate)
             : current.deadline;
+
+        // If deadline is modified/rescheduled, reject setting a past date/time
+        if ((deadline !== undefined || dueDate !== undefined) && !allowPast) {
+            const currentClean = current.deadline ? String(current.deadline).split('T')[0] : '';
+            const newClean = updatedDeadline ? String(updatedDeadline).split('T')[0] : '';
+            const isChanged = (currentClean !== newClean) || (dueTime && String(updatedDeadline).includes('T'));
+            if (isChanged && updatedDeadline && isScheduleInPast(updatedDeadline, dueTime)) {
+                return res.status(400).json({
+                    error: 'You cannot schedule a task in the past. Please select a future date and time.'
+                });
+            }
+        }
 
         const allowedPriorities = ['Low', 'Medium', 'High', 'Urgent'];
         const allowedStatuses = ['Pending', 'Completed', 'In Progress'];

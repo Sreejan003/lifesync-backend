@@ -191,13 +191,13 @@ async function googleAuth(req, res, next) {
                     return res.status(401).json({ error: 'Invalid Google OAuth ID token.' });
                 }
                 const tokenInfo = await googleRes.json();
-                
+
                 // Verify audience if configured
                 const expectedClientId = process.env.GOOGLE_CLIENT_ID;
                 if (expectedClientId && tokenInfo.aud && tokenInfo.aud !== expectedClientId) {
                     return res.status(401).json({ error: 'Google OAuth token audience mismatch.' });
                 }
-                
+
                 if (!tokenInfo.email || tokenInfo.email_verified === 'false' || tokenInfo.email_verified === false) {
                     return res.status(401).json({ error: 'Unverified Google email address.' });
                 }

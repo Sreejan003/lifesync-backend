@@ -187,7 +187,7 @@ async function runTests() {
         assert(topTask.urgencyScore > 0, 'Top task has positive urgency score');
         assert(topTask.reason, `Top task contains explainable reason: "${topTask.reason}"`);
 
-        // Update task status
+        // Update task status (Preserves deadline without error)
         const updateTaskRes = await request(`/api/tasks/${taskId}`, {
             method: 'PUT',
             headers: { Authorization: `Bearer ${userToken}` },
@@ -195,6 +195,41 @@ async function runTests() {
         });
         assert(updateTaskRes.status === 200, 'PUT /api/tasks/:id updated status (200)');
         assert(updateTaskRes.body.status === 'Completed', 'Task marked Completed');
+
+        // Past-date scheduling validation tests
+        const pastDate = '2020-01-01';
+        const pastDateRes = await request('/api/tasks', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${userToken}` },
+            body: {
+                title: 'Past Date Task',
+                deadline: pastDate
+            }
+        });
+        assert(pastDateRes.status === 400, 'POST /api/tasks rejects past date with 400 Bad Request');
+        assert(pastDateRes.body.error === 'You cannot schedule a task in the past. Please select a future date and time.',
+            'POST /api/tasks returns correct past date error message');
+
+        // Rescheduling existing task into the past should be rejected with 400
+        const reschedulePastRes = await request(`/api/tasks/${taskId}`, {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${userToken}` },
+            body: { deadline: '2021-05-15' }
+        });
+        assert(reschedulePastRes.status === 400, 'PUT /api/tasks/:id rejects rescheduling into the past (400)');
+
+        // Today with future time should succeed
+        const todayStr = new Date().toISOString().split('T')[0];
+        const futureTimeRes = await request('/api/tasks', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${userToken}` },
+            body: {
+                title: 'Today Future Task',
+                deadline: todayStr,
+                dueTime: '23:59'
+            }
+        });
+        assert(futureTimeRes.status === 201, 'POST /api/tasks allows today with future time (23:59)');
 
         // 4. Calendar Events CRUD
         console.log('\n4. Testing Calendar Events CRUD:');

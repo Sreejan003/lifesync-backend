@@ -108,6 +108,10 @@ async function createWellnessRecord(req, res, next) {
  * DELETE /api/wellness/:id
  */
 function formatLocalDate(d) {
+    if (!d) return '';
+    if (typeof d === 'string') {
+        return d.split('T')[0];
+    }
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -150,7 +154,7 @@ async function getWellnessSummary(req, res, next) {
 
         // Calculate streak (consecutive tracked days starting from today or yesterday)
         let streak = 0;
-        const dateSet = new Set(records.map(r => String(r.date).split('T')[0]));
+        const dateSet = new Set(records.map(r => formatLocalDate(r.date)));
 
         let checkDate = new Date();
         const todayStr = formatLocalDate(checkDate);
@@ -176,7 +180,7 @@ async function getWellnessSummary(req, res, next) {
             const d = new Date();
             d.setDate(d.getDate() - i);
             const dStr = formatLocalDate(d);
-            const found = records.find(r => String(r.date).split('T')[0] === dStr);
+            const found = records.find(r => formatLocalDate(r.date) === dStr);
 
             weeklyDays.push({
                 date: dStr,

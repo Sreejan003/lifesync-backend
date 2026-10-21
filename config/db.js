@@ -19,7 +19,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const databaseUrl = process.env.DATABASE_URL && process.env.DATABASE_URL.trim();
 
 if (databaseUrl) {
-    // PostgreSQL connection
+    // PostgreSQL / Supabase connection with production connection pooling
     const { Pool } = require('pg');
     dbDriver = 'pg';
     const sslConfig = (databaseUrl.includes('localhost') || databaseUrl.includes('127.0.0.1'))
@@ -28,7 +28,14 @@ if (databaseUrl) {
 
     pool = new Pool({
         connectionString: databaseUrl,
-        ssl: sslConfig
+        ssl: sslConfig,
+        max: 20,                          // Maximum pool connections
+        idleTimeoutMillis: 30000,         // Close idle clients after 30 seconds
+        connectionTimeoutMillis: 5000     // Return an error after 5 seconds if connection cannot be established
+    });
+
+    pool.on('error', (err) => {
+        console.error('⚠️ Unexpected error on idle PostgreSQL client pool:', err.message);
     });
 
     console.log('📦 Using PostgreSQL database connection.');
@@ -111,6 +118,8 @@ async function initDatabase() {
     const idType = isPg ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
     const timestampType = isPg ? 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP' : 'DATETIME DEFAULT CURRENT_TIMESTAMP';
     const numericType = isPg ? 'NUMERIC(10, 2)' : 'REAL';
+    const boolDefault = isPg ? 'false' : '0';
+    const boolTrue = isPg ? 'true' : '1';
 
     // 1. Users Table
     await query(`
@@ -150,7 +159,7 @@ async function initDatabase() {
             date DATE NOT NULL,
             time VARCHAR(10) DEFAULT '09:00',
             event_type VARCHAR(50) DEFAULT 'Study',
-            reminder BOOLEAN DEFAULT 0,
+            reminder BOOLEAN DEFAULT ${boolDefault},
             created_at ${timestampType}
         );
     `);
@@ -178,7 +187,7 @@ async function initDatabase() {
             runway_buffer_pct INTEGER DEFAULT 15,
             night_safe_limit ${numericType} DEFAULT 0,
             night_safe_spent ${numericType} DEFAULT 0,
-            night_safe_locked BOOLEAN DEFAULT 0
+            night_safe_locked BOOLEAN DEFAULT ${boolDefault}
         );
     `);
 
@@ -207,8 +216,8 @@ async function initDatabase() {
             year_semester VARCHAR(100) DEFAULT '',
             student_id VARCHAR(100) DEFAULT '',
             currency VARCHAR(10) DEFAULT '₹',
-            xp INTEGER DEFAULT 120,
-            notifications_enabled BOOLEAN DEFAULT 1
+            xp INTEGER DEFAULT 0,
+            notifications_enabled BOOLEAN DEFAULT ${boolTrue}
         );
     `);
 
@@ -219,7 +228,7 @@ async function initDatabase() {
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             puzzle_id VARCHAR(100),
             difficulty VARCHAR(20) DEFAULT 'medium',
-            is_completed BOOLEAN DEFAULT 0,
+            is_completed BOOLEAN DEFAULT ${boolDefault},
             time_seconds INTEGER DEFAULT 0,
             mistakes_count INTEGER DEFAULT 0,
             hints_used INTEGER DEFAULT 0,
@@ -252,7 +261,106 @@ async function initDatabase() {
         );
     `);
 
+    // 10. Notifications Table
+    await query(`
+        CREATE TABLE IF NOT EXISTS notifications (
+            id ${idType},
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            title VARCHAR(255) NOT NULL,
+            message TEXT NOT NULL,
+            category VARCHAR(50) DEFAULT 'task',
+            priority VARCHAR(20) DEFAULT 'medium',
+            is_read BOOLEAN DEFAULT ${boolDefault},
+            action_link VARCHAR(255),
+            dedupe_key VARCHAR(255),
+            created_at ${timestampType}
+        );
+    `);
+
+    // 11. Notification Preferences Table
+    await query(`
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            quiet_hours_start VARCHAR(5) DEFAULT '22:00',
+            quiet_hours_end VARCHAR(5) DEFAULT '07:00',
+            email_alerts BOOLEAN DEFAULT ${boolDefault},
+            browser_alerts BOOLEAN DEFAULT ${boolTrue},
+            task_reminders BOOLEAN DEFAULT ${boolTrue},
+            exam_alerts BOOLEAN DEFAULT ${boolTrue},
+            budget_warnings BOOLEAN DEFAULT ${boolTrue},
+            wellness_prompts BOOLEAN DEFAULT ${boolTrue},
+            updated_at ${timestampType}
+        );
+    `);
+
+    // 12. Pomodoro Focus Sessions Table
+    await query(`
+        CREATE TABLE IF NOT EXISTS pomodoro_sessions (
+            id ${idType},
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+            mode VARCHAR(20) DEFAULT 'focus',
+            duration_minutes INTEGER DEFAULT 25,
+            completed BOOLEAN DEFAULT ${boolTrue},
+            started_at ${timestampType},
+            completed_at ${timestampType}
+        );
+    `);
+
+    // 13. Pomodoro Timer Settings Table
+    await query(`
+        CREATE TABLE IF NOT EXISTS pomodoro_settings (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            focus_duration INTEGER DEFAULT 25,
+            short_break INTEGER DEFAULT 5,
+            long_break INTEGER DEFAULT 15,
+            sessions_until_long_break INTEGER DEFAULT 4,
+            auto_start_breaks BOOLEAN DEFAULT ${boolDefault},
+            sound_enabled BOOLEAN DEFAULT ${boolTrue},
+            updated_at ${timestampType}
+        );
+    `);
+
+    // 14. Web Push Subscriptions Table (for closed-tab / offline background alerts)
+    await query(`
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id ${idType},
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            user_agent TEXT,
+            created_at ${timestampType}
+        );
+    `);
+
+    // Create indexes if they don't exist
+    try {
+        await query(`CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(user_id, dedupe_key);`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_pomodoro_user_id ON pomodoro_sessions(user_id);`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_pomodoro_completed_at ON pomodoro_sessions(completed_at);`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_push_subs_user_id ON push_subscriptions(user_id);`);
+    } catch (idxErr) {
+        // Tolerated on dialects that don't support certain index clauses
+    }
+
     console.log('✅ Database schema verified and initialized.');
+}
+
+/**
+ * Gracefully close database connections
+ */
+async function closeDatabase() {
+    if (pool) {
+        await pool.end();
+        console.log('🔒 Closed PostgreSQL connection pool.');
+    }
+    if (sqliteDb) {
+        await new Promise((resolve) => sqliteDb.close(resolve));
+        console.log('🔒 Closed SQLite database connection.');
+    }
 }
 
 /**
@@ -299,5 +407,6 @@ module.exports = {
     query,
     transaction,
     initDatabase,
+    closeDatabase,
     getDriver: () => dbDriver
 };

@@ -15,7 +15,8 @@ async function getProfile(req, res, next) {
             const userRes = await db.query('SELECT name, email FROM users WHERE id = $1', [userId]);
             const user = userRes.rows[0] || {};
             await db.query(
-                `INSERT INTO profiles (user_id, name, email) VALUES ($1, $2, $3)`,
+                `INSERT INTO profiles (user_id, name, email, university, major, year_semester, student_id, xp, currency, notifications_enabled)
+                 VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, 0, '₹', 1)`,
                 [userId, user.name || req.user.name, user.email || req.user.email]
             );
             result = await db.query('SELECT * FROM profiles WHERE user_id = $1', [userId]);
@@ -36,13 +37,13 @@ async function updateProfile(req, res, next) {
         const current = currentRes.rows[0] || {};
 
         const updatedName = name !== undefined ? name.trim() : (current.name || req.user.name);
-        const updatedUni = university !== undefined ? university.trim() : (current.university || '');
-        const updatedMajor = major !== undefined ? major.trim() : (current.major || '');
-        const updatedYrSem = yearSemester !== undefined ? yearSemester.trim() : (current.year_semester || '');
-        const updatedStuId = studentId !== undefined ? studentId.trim() : (current.student_id || '');
+        const updatedUni = university !== undefined ? (university ? university.trim() : '') : (current.university || '');
+        const updatedMajor = major !== undefined ? (major ? major.trim() : '') : (current.major || '');
+        const updatedYrSem = yearSemester !== undefined ? (yearSemester ? yearSemester.trim() : '') : (current.year_semester || '');
+        const updatedStuId = studentId !== undefined ? (studentId ? studentId.trim() : '') : (current.student_id || '');
         const updatedCurr = currency !== undefined ? currency : (current.currency || '₹');
-        const updatedXp = xp !== undefined ? parseInt(xp, 10) : (current.xp || 120);
-        const updatedNotif = notificationsEnabled !== undefined ? (Boolean(notificationsEnabled) ? 1 : 0) : (current.notifications_enabled || 1);
+        const updatedXp = xp !== undefined ? parseInt(xp, 10) : (current.xp !== undefined && current.xp !== null ? current.xp : 0);
+        const updatedNotif = notificationsEnabled !== undefined ? Boolean(notificationsEnabled) : (current.notifications_enabled !== undefined ? Boolean(current.notifications_enabled) : true);
 
         // Also update name in users table if name is updated
         if (name && name.trim()) {

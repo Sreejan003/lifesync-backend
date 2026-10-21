@@ -91,7 +91,7 @@ async function createEvent(req, res, next) {
                 date,
                 eventTime,
                 type,
-                isReminder ? 1 : 0
+                isReminder
             ]
         );
 
@@ -125,9 +125,9 @@ async function updateEvent(req, res, next) {
             ? (event_type || category)
             : current.event_type;
 
-        let updatedReminder = current.reminder;
+        let updatedReminder = Boolean(current.reminder);
         if (reminder !== undefined || hasReminder !== undefined) {
-            updatedReminder = Boolean(reminder !== undefined ? reminder : hasReminder) ? 1 : 0;
+            updatedReminder = Boolean(reminder !== undefined ? reminder : hasReminder);
         }
 
         const result = await db.query(
