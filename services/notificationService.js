@@ -47,7 +47,7 @@ async function getPreferences(userId) {
         INSERT INTO notification_preferences (
             user_id, quiet_hours_start, quiet_hours_end, email_alerts,
             browser_alerts, task_reminders, exam_alerts, budget_warnings, wellness_prompts
-        ) VALUES ($1, '22:00', '07:00', 0, 1, 1, 1, 1, 1)
+        ) VALUES ($1, '22:00', '07:00', false, true, true, true, true, true)
         ON CONFLICT (user_id) DO NOTHING;
     `, [userId]);
 
@@ -87,12 +87,12 @@ async function updatePreferences(userId, prefs) {
         userId,
         prefs.quiet_hours_start || '22:00',
         prefs.quiet_hours_end || '07:00',
-        prefs.email_alerts ? 1 : 0,
-        prefs.browser_alerts !== false ? 1 : 0,
-        prefs.task_reminders !== false ? 1 : 0,
-        prefs.exam_alerts !== false ? 1 : 0,
-        prefs.budget_warnings !== false ? 1 : 0,
-        prefs.wellness_prompts !== false ? 1 : 0
+        Boolean(prefs.email_alerts),
+        prefs.browser_alerts !== false,
+        prefs.task_reminders !== false,
+        prefs.exam_alerts !== false,
+        prefs.budget_warnings !== false,
+        prefs.wellness_prompts !== false
     ]);
 
     return getPreferences(userId);
@@ -126,7 +126,7 @@ async function createNotification({
     const res = await db.query(`
         INSERT INTO notifications (
             user_id, title, message, category, priority, is_read, action_link, dedupe_key
-        ) VALUES ($1, $2, $3, $4, $5, 0, $6, $7)
+        ) VALUES ($1, $2, $3, $4, $5, false, $6, $7)
         RETURNING *;
     `, [userId, title, message, category, priority, actionLink, dedupeKey]);
 
@@ -146,7 +146,7 @@ async function getNotifications(userId, limit = 50) {
 
     const countRes = await db.query(`
         SELECT COUNT(*) as count FROM notifications
-        WHERE user_id = $1 AND (is_read = 0 OR is_read = false);
+        WHERE user_id = $1 AND is_read = false;
     `, [userId]);
 
     return {
@@ -161,7 +161,7 @@ async function getNotifications(userId, limit = 50) {
 async function getUnreadCount(userId) {
     const res = await db.query(`
         SELECT COUNT(*) as count FROM notifications
-        WHERE user_id = $1 AND (is_read = 0 OR is_read = false);
+        WHERE user_id = $1 AND is_read = false;
     `, [userId]);
 
     return parseInt(res.rows[0]?.count || 0, 10);
@@ -173,7 +173,7 @@ async function getUnreadCount(userId) {
 async function markRead(notificationId, userId) {
     const res = await db.query(`
         UPDATE notifications
-        SET is_read = 1
+        SET is_read = true
         WHERE id = $1 AND user_id = $2
         RETURNING *;
     `, [notificationId, userId]);
@@ -187,8 +187,8 @@ async function markRead(notificationId, userId) {
 async function markAllRead(userId) {
     const res = await db.query(`
         UPDATE notifications
-        SET is_read = 1
-        WHERE user_id = $1 AND (is_read = 0 OR is_read = false);
+        SET is_read = true
+        WHERE user_id = $1 AND is_read = false;
     `, [userId]);
 
     return { updated: res.rowCount };
@@ -320,7 +320,7 @@ async function evaluateUserTriggers(userId) {
             const currentYearMonth = todayStr.substring(0, 7);
             const expenseRes = await db.query(`
                 SELECT SUM(amount) as total_spent FROM transactions
-                WHERE user_id = $1 AND type = 'Expense' AND date LIKE $2;
+                WHERE user_id = $1 AND LOWER(type) = 'expense' AND CAST(date AS TEXT) LIKE $2;
             `, [userId, `${currentYearMonth}%`]);
 
             const spent = parseFloat(expenseRes.rows[0]?.total_spent || 0);

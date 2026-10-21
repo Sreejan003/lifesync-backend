@@ -17,7 +17,7 @@ async function recordSession(req, res, next) {
         const { taskId, mode = 'focus', durationMinutes = 25, startedAt, completed = true } = req.body;
 
         const effectiveStartedAt = startedAt ? new Date(startedAt).toISOString() : new Date().toISOString();
-        const effectiveCompleted = completed ? 1 : 0;
+        const effectiveCompleted = completed !== false;
         const duration = parseInt(durationMinutes, 10) || 25;
 
         const sessionRes = await db.query(`
@@ -64,7 +64,7 @@ async function getStats(req, res, next) {
             FROM pomodoro_sessions
             WHERE user_id = $1 
               AND mode = 'focus' 
-              AND (completed = 1 OR completed = true)
+              AND completed = true
               AND completed_at >= $2;
         `, [userId, `${todayStr} 00:00:00`]);
 
@@ -76,7 +76,7 @@ async function getStats(req, res, next) {
             FROM pomodoro_sessions
             WHERE user_id = $1 
               AND mode = 'focus' 
-              AND (completed = 1 OR completed = true);
+              AND completed = true;
         `, [userId]);
 
         // Recent 10 sessions with task details if available
@@ -124,7 +124,7 @@ async function getSettings(req, res, next) {
                 INSERT INTO pomodoro_settings (
                     user_id, focus_duration, short_break, long_break,
                     sessions_until_long_break, auto_start_breaks, sound_enabled
-                ) VALUES ($1, 25, 5, 15, 4, 0, 1)
+                ) VALUES ($1, 25, 5, 15, 4, false, true)
                 ON CONFLICT (user_id) DO NOTHING;
             `, [userId]);
 
@@ -174,8 +174,8 @@ async function updateSettings(req, res, next) {
             parseInt(shortBreak, 10) || 5,
             parseInt(longBreak, 10) || 15,
             parseInt(sessionsUntilLongBreak, 10) || 4,
-            autoStartBreaks ? 1 : 0,
-            soundEnabled !== false ? 1 : 0
+            Boolean(autoStartBreaks),
+            soundEnabled !== false
         ]);
 
         const updated = await db.query('SELECT * FROM pomodoro_settings WHERE user_id = $1;', [userId]);
