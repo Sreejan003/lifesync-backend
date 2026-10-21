@@ -219,7 +219,8 @@ async function runTests() {
         assert(reschedulePastRes.status === 400, 'PUT /api/tasks/:id rejects rescheduling into the past (400)');
 
         // Today with future time should succeed
-        const todayStr = new Date().toISOString().split('T')[0];
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         const futureTimeRes = await request('/api/tasks', {
             method: 'POST',
             headers: { Authorization: `Bearer ${userToken}` },
