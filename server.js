@@ -78,12 +78,20 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/pomodoro', pomodoroRoutes);
 
+// Serve static frontend assets
+const frontendDir = path.join(__dirname, '..', 'frontend');
+app.use(express.static(frontendDir));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(frontendDir, 'index.html'));
+});
+
 // 404 handler for undefined routes
 app.use((req, res) => {
     if (req.path.startsWith('/api/')) {
         return res.status(404).json({ error: `API route ${req.method} ${req.path} not found.` });
     }
-    res.status(404).json({ error: 'Not found' });
+    res.sendFile(path.join(frontendDir, 'index.html'));
 });
 
 // Global Error Handler

@@ -287,6 +287,22 @@ async function updateTask(req, res, next) {
             ]
         );
 
+        if (updatedStatus === 'Completed') {
+            try {
+                await db.query(`
+                    DELETE FROM notifications
+                    WHERE user_id = $1 AND (
+                        dedupe_key LIKE 'overdue_task_' || $2 || '%' OR
+                        dedupe_key LIKE 'due_today_task_' || $2 || '%' OR
+                        dedupe_key LIKE 'task_' || $2 || '%' OR
+                        dedupe_key LIKE '%_' || $2 || '%'
+                    );
+                `, [userId, id]);
+            } catch (notifErr) {
+                console.warn('Cleanup of completed task notifications error:', notifErr.message);
+            }
+        }
+
         return res.status(200).json(result.rows[0]);
     } catch (err) {
         next(err);
@@ -310,7 +326,25 @@ async function deleteTask(req, res, next) {
             return res.status(404).json({ error: 'Task not found.' });
         }
 
-        return res.status(200).json({ message: 'Task deleted successfully.', task: result.rows[0] });
+        const deletedTask = result.rows[0];
+
+        // Also delete any notifications and reminders associated with this task
+        try {
+            await db.query(`
+                DELETE FROM notifications
+                WHERE user_id = $1 AND (
+                    dedupe_key LIKE 'overdue_task_' || $2 || '%' OR
+                    dedupe_key LIKE 'due_today_task_' || $2 || '%' OR
+                    dedupe_key LIKE 'task_' || $2 || '%' OR
+                    dedupe_key LIKE '%_' || $2 || '%' OR
+                    (category = 'task' AND (message LIKE '%' || $3 || '%' OR title LIKE '%' || $3 || '%'))
+                );
+            `, [userId, id, deletedTask.title]);
+        } catch (notifErr) {
+            console.warn('Cleanup of deleted task notifications error:', notifErr.message);
+        }
+
+        return res.status(200).json({ message: 'Task deleted successfully.', task: deletedTask });
     } catch (err) {
         next(err);
     }

@@ -76,8 +76,19 @@ function query(text, params = []) {
 
     // SQLite adapter
     return new Promise((resolve, reject) => {
-        // Convert PostgreSQL style $1, $2, $3 to SQLite ?
-        let sqliteText = text.replace(/\$(\d+)/g, '?');
+        let sqliteParams = params || [];
+        let sqliteText = text;
+
+        if (text.includes('$') && params && params.length > 0) {
+            sqliteParams = [];
+            sqliteText = text.replace(/\$(\d+)/g, (match, num) => {
+                const idx = parseInt(num, 10) - 1;
+                sqliteParams.push(params[idx] !== undefined ? params[idx] : null);
+                return '?';
+            });
+        } else if (text.includes('$')) {
+            sqliteText = text.replace(/\$(\d+)/g, '?');
+        }
 
         // Check if query is a SELECT
         const trimmed = sqliteText.trim().toUpperCase();
@@ -85,7 +96,7 @@ function query(text, params = []) {
         const hasReturning = trimmed.includes('RETURNING');
 
         if (isSelect || hasReturning) {
-            sqliteDb.all(sqliteText, params, function (err, rows) {
+            sqliteDb.all(sqliteText, sqliteParams, function (err, rows) {
                 if (err) return reject(err);
                 resolve({
                     rows: rows || [],
@@ -93,7 +104,7 @@ function query(text, params = []) {
                 });
             });
         } else {
-            sqliteDb.run(sqliteText, params, function (err) {
+            sqliteDb.run(sqliteText, sqliteParams, function (err) {
                 if (err) return reject(err);
                 resolve({
                     rows: [],

@@ -7,6 +7,23 @@
 
 const db = require('../config/db');
 
+function formatEventRow(row) {
+    if (!row) return row;
+    let cleanDate = row.date;
+    if (cleanDate instanceof Date) {
+        const y = cleanDate.getFullYear();
+        const m = String(cleanDate.getMonth() + 1).padStart(2, '0');
+        const d = String(cleanDate.getDate()).padStart(2, '0');
+        cleanDate = `${y}-${m}-${d}`;
+    } else if (typeof cleanDate === 'string' && cleanDate.includes('T')) {
+        cleanDate = cleanDate.split('T')[0];
+    }
+    return {
+        ...row,
+        date: cleanDate
+    };
+}
+
 /**
  * GET /api/events
  * Retrieve events belonging to logged-in user
@@ -32,7 +49,8 @@ async function getEvents(req, res, next) {
         queryText += ' ORDER BY date ASC, time ASC';
 
         const result = await db.query(queryText, params);
-        return res.status(200).json(result.rows);
+        const formatted = result.rows.map(formatEventRow);
+        return res.status(200).json(formatted);
     } catch (err) {
         next(err);
     }
@@ -55,7 +73,7 @@ async function getEventById(req, res, next) {
             return res.status(404).json({ error: 'Event not found.' });
         }
 
-        return res.status(200).json(result.rows[0]);
+        return res.status(200).json(formatEventRow(result.rows[0]));
     } catch (err) {
         next(err);
     }
@@ -79,6 +97,7 @@ async function createEvent(req, res, next) {
         const type = event_type || category || 'Study';
         const eventTime = time || '09:00';
         const isReminder = reminder !== undefined ? Boolean(reminder) : (hasReminder !== undefined ? Boolean(hasReminder) : false);
+        const cleanDate = typeof date === 'string' && date.includes('T') ? date.split('T')[0] : date;
 
         const result = await db.query(
             `INSERT INTO events (user_id, title, description, date, time, event_type, reminder)
@@ -88,14 +107,14 @@ async function createEvent(req, res, next) {
                 userId,
                 title.trim(),
                 (description || '').trim(),
-                date,
+                cleanDate,
                 eventTime,
                 type,
                 isReminder
             ]
         );
 
-        return res.status(201).json(result.rows[0]);
+        return res.status(201).json(formatEventRow(result.rows[0]));
     } catch (err) {
         next(err);
     }
@@ -119,7 +138,10 @@ async function updateEvent(req, res, next) {
 
         const updatedTitle = title !== undefined ? title.trim() : current.title;
         const updatedDesc = description !== undefined ? description.trim() : current.description;
-        const updatedDate = date !== undefined ? date : current.date;
+        let updatedDate = date !== undefined ? date : current.date;
+        if (typeof updatedDate === 'string' && updatedDate.includes('T')) {
+            updatedDate = updatedDate.split('T')[0];
+        }
         const updatedTime = time !== undefined ? time : current.time;
         const updatedType = (event_type !== undefined || category !== undefined)
             ? (event_type || category)
@@ -147,7 +169,7 @@ async function updateEvent(req, res, next) {
             ]
         );
 
-        return res.status(200).json(result.rows[0]);
+        return res.status(200).json(formatEventRow(result.rows[0]));
     } catch (err) {
         next(err);
     }
@@ -170,7 +192,23 @@ async function deleteEvent(req, res, next) {
             return res.status(404).json({ error: 'Event not found.' });
         }
 
-        return res.status(200).json({ message: 'Event deleted successfully.', event: result.rows[0] });
+        const deletedEv = result.rows[0];
+
+        // Also delete any notifications and reminders associated with this event
+        try {
+            await db.query(`
+                DELETE FROM notifications
+                WHERE user_id = $1 AND (
+                    dedupe_key LIKE 'exam_alert_' || $2 || '_%' OR
+                    dedupe_key LIKE 'event_' || $2 || '_%' OR
+                    (category = 'exam' AND message LIKE '%' || $3 || '%')
+                );
+            `, [userId, id, deletedEv.title]);
+        } catch (notifErr) {
+            console.warn('Cleanup of event notifications error:', notifErr.message);
+        }
+
+        return res.status(200).json({ message: 'Event deleted successfully.', event: formatEventRow(deletedEv) });
     } catch (err) {
         next(err);
     }
